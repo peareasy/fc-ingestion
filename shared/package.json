@@ -1,0 +1,20 @@
+{
+    "name": "@fc-ingestion/shared",
+    "version": "0.1.0",
+    "description": "FC Ingestion Shared Utilities and Types",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "clean": "rm -rf dist",
+        "test": "jest"
+    },
+    "devDependencies": {
+        "@types/jest": "^29.5.14",
+        "@types/node": "22.7.9",
+        "jest": "^29.7.0",
+        "ts-jest": "^29.2.5",
+        "typescript": "~5.6.3"
+    },
+    "dependencies": {}
+}

@@ -1,26 +1,27 @@
 {
-  "name": "fc-ingestion",
-  "version": "0.1.0",
-  "bin": {
-    "fc-ingestion": "bin/fc-ingestion.js"
-  },
+  "name": "fc-ingestion-monorepo",
+  "version": "1.0.0",
+  "description": "FC Ingestion Monorepo - Infrastructure and Applications",
+  "private": true,
+  "workspaces": [
+    "infrastructure",
+    "applications/*",
+    "shared"
+  ],
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
-    "test": "jest",
-    "cdk": "cdk"
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "clean": "npm run clean --workspaces",
+    "deploy": "cd infrastructure && npm run cdk deploy",
+    "diff": "cd infrastructure && npm run cdk diff",
+    "synth": "cd infrastructure && npm run cdk synth"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.14",
     "@types/node": "22.7.9",
-    "jest": "^29.7.0",
-    "ts-jest": "^29.2.5",
-    "aws-cdk": "2.1023.0",
-    "ts-node": "^10.9.2",
     "typescript": "~5.6.3"
   },
-  "dependencies": {
-    "aws-cdk-lib": "2.206.0",
-    "constructs": "^10.0.0"
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
   }
 }

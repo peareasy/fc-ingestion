@@ -6,6 +6,8 @@
     "lib": [
       "es2022"
     ],
+
+
     "declaration": true,
     "strict": true,
     "noImplicitAny": true,
@@ -26,6 +28,7 @@
   },
   "exclude": [
     "node_modules",
-    "cdk.out"
+    "cdk.out",
+    "test"
   ]
 }
