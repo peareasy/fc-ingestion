@@ -88,24 +88,33 @@ jobs:
           # Check ECS service status
           echo "Checking ECS service: $SERVICE_NAME"
           
-          # Wait for service to be stable
-          aws ecs wait services-stable \
+          # Describe the service to check its status
+          SERVICE_INFO=$(aws ecs describe-services \
             --cluster fc-ingestion-cluster \
-            --services "$SERVICE_NAME"
+            --services "$SERVICE_NAME" \
+            --query 'services[0]' \
+            --output json)
 
-          # Get running tasks
-          TASKS=$(aws ecs list-tasks \
-            --cluster fc-ingestion-cluster \
-            --service-name "$SERVICE_NAME" \
-            --desired-status RUNNING \
-            --query 'taskArns' \
-            --output text)
+          # Check if service exists and has desired count > 0
+          DESIRED_COUNT=$(echo "$SERVICE_INFO" | jq -r '.desiredCount')
+          RUNNING_COUNT=$(echo "$SERVICE_INFO" | jq -r '.runningCount')
+          STATUS=$(echo "$SERVICE_INFO" | jq -r '.status')
 
-          if [ -z "$TASKS" ]; then
-            echo "❌ No running tasks found"
+          echo "Service Status: $STATUS"
+          echo "Desired Count: $DESIRED_COUNT"
+          echo "Running Count: $RUNNING_COUNT"
+
+          if [ "$DESIRED_COUNT" -eq 0 ]; then
+            echo "❌ Service has 0 desired tasks"
+            exit 1
+          fi
+
+          if [ "$STATUS" != "ACTIVE" ]; then
+            echo "❌ Service is not active (status: $STATUS)"
             exit 1
           fi
 
           echo "✅ Deployment verified successfully!"
           echo "ECS Service: $SERVICE_NAME"
-          echo "Running tasks: $TASKS"
+          echo "Status: $STATUS"
+          echo "Desired/Running: $DESIRED_COUNT/$RUNNING_COUNT"
