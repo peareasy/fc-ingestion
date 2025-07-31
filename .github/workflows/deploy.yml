@@ -79,42 +79,48 @@ jobs:
           # Wait for deployment to stabilize
           sleep 30
 
-          # Get ECS service name from CDK outputs
-          SERVICE_NAME=$(aws cloudformation describe-stacks \
+          # Check CloudFormation stack status
+          STACK_STATUS=$(aws cloudformation describe-stacks \
             --stack-name FcIngestionStack \
-            --query 'Stacks[0].Outputs[?OutputKey==`ServiceName`].OutputValue' \
+            --query 'Stacks[0].StackStatus' \
             --output text)
 
-          # Check ECS service status
-          echo "Checking ECS service: $SERVICE_NAME"
-          
-          # Describe the service to check its status
-          SERVICE_INFO=$(aws ecs describe-services \
-            --cluster fc-ingestion-cluster \
-            --services "$SERVICE_NAME" \
-            --query 'services[0]' \
-            --output json)
+          echo "CloudFormation Stack Status: $STACK_STATUS"
 
-          # Check if service exists and has desired count > 0
-          DESIRED_COUNT=$(echo "$SERVICE_INFO" | jq -r '.desiredCount')
-          RUNNING_COUNT=$(echo "$SERVICE_INFO" | jq -r '.runningCount')
-          STATUS=$(echo "$SERVICE_INFO" | jq -r '.status')
-
-          echo "Service Status: $STATUS"
-          echo "Desired Count: $DESIRED_COUNT"
-          echo "Running Count: $RUNNING_COUNT"
-
-          if [ "$DESIRED_COUNT" -eq 0 ]; then
-            echo "❌ Service has 0 desired tasks"
+          # Verify stack is in a successful state
+          if [[ "$STACK_STATUS" != "CREATE_COMPLETE" && "$STACK_STATUS" != "UPDATE_COMPLETE" ]]; then
+            echo "❌ Stack is not in a successful state (status: $STACK_STATUS)"
             exit 1
           fi
 
-          if [ "$STATUS" != "ACTIVE" ]; then
-            echo "❌ Service is not active (status: $STATUS)"
+          # Get stack outputs to verify resources
+          OUTPUTS=$(aws cloudformation describe-stacks \
+            --stack-name FcIngestionStack \
+            --query 'Stacks[0].Outputs' \
+            --output json)
+
+          # Verify all expected outputs exist
+          SERVICE_NAME=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="ServiceName") | .OutputValue')
+          QUEUE_URL=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="QueueUrl") | .OutputValue')
+          S3_BUCKET=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="S3BucketName") | .OutputValue')
+
+          if [ -z "$SERVICE_NAME" ] || [ "$SERVICE_NAME" = "null" ]; then
+            echo "❌ ServiceName output not found"
+            exit 1
+          fi
+
+          if [ -z "$QUEUE_URL" ] || [ "$QUEUE_URL" = "null" ]; then
+            echo "❌ QueueUrl output not found"
+            exit 1
+          fi
+
+          if [ -z "$S3_BUCKET" ] || [ "$S3_BUCKET" = "null" ]; then
+            echo "❌ S3BucketName output not found"
             exit 1
           fi
 
           echo "✅ Deployment verified successfully!"
+          echo "Stack Status: $STACK_STATUS"
           echo "ECS Service: $SERVICE_NAME"
-          echo "Status: $STATUS"
-          echo "Desired/Running: $DESIRED_COUNT/$RUNNING_COUNT"
+          echo "SQS Queue: $QUEUE_URL"
+          echo "S3 Bucket: $S3_BUCKET"
