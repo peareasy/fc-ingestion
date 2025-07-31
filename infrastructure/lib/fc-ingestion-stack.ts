@@ -1,16 +1,19 @@
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecs from "aws-cdk-lib/aws-ecs";
-import * as ecs_patterns from "aws-cdk-lib/aws-ecs-patterns";
-import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { Platform } from "aws-cdk-lib/aws-ecr-assets";
 
+export interface FcIngestionStackProps extends cdk.StackProps {
+  mongodbUri: string;
+}
+
 export class FcIngestionStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: FcIngestionStackProps) {
     super(scope, id, props);
 
     // Create VPC for ECS
@@ -19,14 +22,39 @@ export class FcIngestionStack extends cdk.Stack {
       natGateways: 1,
     });
 
-    // Create SQS queue for data ingestion
+    // Create S3 bucket for data files
+    const dataBucket = new s3.Bucket(this, "FcIngestionDataBucket", {
+      bucketName: `fc-ingestion-data-${this.account}-${this.region}`,
+      versioned: true,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      lifecycleRules: [
+        {
+          id: "DeleteOldVersions",
+          noncurrentVersionExpiration: cdk.Duration.days(30),
+        },
+        {
+          id: "DeleteIncompleteUploads",
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(1),
+        },
+      ],
+    });
+
+    // Create SQS FIFO queue for data ingestion
     const queue = new sqs.Queue(this, "FcIngestionQueue", {
+      queueName: "fc-ingestion-queue.fifo",
+      fifo: true,
+      contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.seconds(250),
       retentionPeriod: cdk.Duration.days(14),
       receiveMessageWaitTime: cdk.Duration.seconds(20), // Enable long polling
       deadLetterQueue: {
         maxReceiveCount: 3,
         queue: new sqs.Queue(this, "FcIngestionDLQ", {
+          queueName: "fc-ingestion-dlq.fifo",
+          fifo: true,
+          contentBasedDeduplication: true,
           retentionPeriod: cdk.Duration.days(14),
         }),
       },
@@ -38,7 +66,7 @@ export class FcIngestionStack extends cdk.Stack {
       clusterName: "fc-ingestion-cluster",
     });
 
-    // Create task definition with SQS permissions
+    // Create task definition with SQS and S3 permissions
     const taskDefinition = new ecs.FargateTaskDefinition(
       this,
       "FcIngestionTaskDef",
@@ -53,6 +81,25 @@ export class FcIngestionStack extends cdk.Stack {
       iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSQSFullAccess")
     );
 
+    // Create custom S3 policy for specific bucket access
+    const s3BucketPolicy = new iam.Policy(this, "S3BucketPolicy", {
+      statements: [
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject",
+            "s3:ListBucket",
+          ],
+          resources: [dataBucket.bucketArn, `${dataBucket.bucketArn}/*`],
+        }),
+      ],
+    });
+
+    // Attach the custom S3 policy to the task role
+    s3BucketPolicy.attachToRole(taskDefinition.taskRole!);
+
     // Add container to task definition
     const container = taskDefinition.addContainer("FcIngestionApp", {
       image: ecs.ContainerImage.fromAsset("../applications/nestjs-app", {
@@ -66,35 +113,27 @@ export class FcIngestionStack extends cdk.Stack {
         logRetention: logs.RetentionDays.ONE_WEEK,
       }),
       environment: {
-        PORT: "3000",
         QUEUE_URL: queue.queueUrl,
+        S3_BUCKET_NAME: dataBucket.bucketName,
+        MONGODB_URI: props.mongodbUri,
         NODE_ENV: "production",
       },
     });
 
-    container.addPortMappings({
-      containerPort: 3000,
-      protocol: ecs.Protocol.TCP,
+    // Create Fargate service without public access (SQS and S3 only)
+    const fargateService = new ecs.FargateService(this, "FcIngestionService", {
+      cluster,
+      taskDefinition,
+      desiredCount: 2,
+      serviceName: "fc-ingestion-service",
+      assignPublicIp: false, // Private subnets only
+      healthCheckGracePeriod: cdk.Duration.seconds(30),
+      minHealthyPercent: 100,
+      maxHealthyPercent: 200,
     });
 
-    // Create Fargate service with Application Load Balancer
-    const fargateService =
-      new ecs_patterns.ApplicationLoadBalancedFargateService(
-        this,
-        "FcIngestionService",
-        {
-          cluster,
-          taskDefinition,
-          desiredCount: 2,
-          serviceName: "fc-ingestion-service",
-          publicLoadBalancer: true,
-          listenerPort: 80,
-          healthCheckGracePeriod: cdk.Duration.seconds(60),
-        }
-      );
-
     // Configure auto scaling
-    const scaling = fargateService.service.autoScaleTaskCount({
+    const scaling = fargateService.autoScaleTaskCount({
       maxCapacity: 4,
       minCapacity: 1,
     });
@@ -122,14 +161,24 @@ export class FcIngestionStack extends cdk.Stack {
       description: "ARN of the FC Ingestion SQS Queue",
     });
 
-    new cdk.CfnOutput(this, "LoadBalancerDNS", {
-      value: fargateService.loadBalancer.loadBalancerDnsName,
-      description: "DNS name of the Application Load Balancer",
+    new cdk.CfnOutput(this, "S3BucketName", {
+      value: dataBucket.bucketName,
+      description: "Name of the FC Ingestion S3 Data Bucket",
     });
 
-    new cdk.CfnOutput(this, "ServiceUrl", {
-      value: `http://${fargateService.loadBalancer.loadBalancerDnsName}`,
-      description: "URL of the NestJS application",
+    new cdk.CfnOutput(this, "S3BucketArn", {
+      value: dataBucket.bucketArn,
+      description: "ARN of the FC Ingestion S3 Data Bucket",
+    });
+
+    new cdk.CfnOutput(this, "ServiceName", {
+      value: fargateService.serviceName,
+      description: "Name of the FC Ingestion ECS Service",
+    });
+
+    new cdk.CfnOutput(this, "ClusterName", {
+      value: cluster.clusterName,
+      description: "Name of the FC Ingestion ECS Cluster",
     });
   }
 }

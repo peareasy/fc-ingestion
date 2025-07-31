@@ -1,10 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  SQSClient,
-  SendMessageCommand,
-  ReceiveMessageCommand,
-  DeleteMessageCommand,
-} from '@aws-sdk/client-sqs';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 
 @Injectable()
 export class AppService {
@@ -40,38 +35,6 @@ export class AppService {
       return result.MessageId || 'unknown';
     } catch (error) {
       this.logger.error('Error sending message to SQS:', error);
-      throw error;
-    }
-  }
-
-  async receiveMessages(maxMessages: number = 10): Promise<any[]> {
-    try {
-      const command = new ReceiveMessageCommand({
-        QueueUrl: this.queueUrl,
-        MaxNumberOfMessages: maxMessages,
-        WaitTimeSeconds: 20, // Long polling
-      });
-
-      const result = await this.sqsClient.send(command);
-      this.logger.log(`Received ${result.Messages?.length || 0} messages`);
-      return result.Messages || [];
-    } catch (error) {
-      this.logger.error('Error receiving messages from SQS:', error);
-      throw error;
-    }
-  }
-
-  async deleteMessage(receiptHandle: string): Promise<void> {
-    try {
-      const command = new DeleteMessageCommand({
-        QueueUrl: this.queueUrl,
-        ReceiptHandle: receiptHandle,
-      });
-
-      await this.sqsClient.send(command);
-      this.logger.log('Message deleted successfully');
-    } catch (error) {
-      this.logger.error('Error deleting message from SQS:', error);
       throw error;
     }
   }
