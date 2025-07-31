@@ -50,9 +50,7 @@ export class SQSHandler {
         await this.processLegacyMessage(messageData, message.MessageId);
       }
 
-      this.logger.log(
-        `Successfully processed message: ${message.MessageId}`,
-      );
+      this.logger.log(`Successfully processed message: ${message.MessageId}`);
     } catch (error) {
       this.logger.error(
         `Error processing message ${message.MessageId}:`,
