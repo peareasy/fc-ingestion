@@ -18,8 +18,9 @@ async function bootstrap() {
   console.log('AWS Region:', process.env.AWS_REGION || 'eu-west-1');
   console.log('S3 Integration: enabled');
   console.log('MongoDB Integration: enabled');
+  console.log('SQS Integration: enabled (@ssut/nestjs-sqs)');
 
-  // The app will start polling SQS automatically via SQSMicroservice.onModuleInit()
+  // The app will start polling SQS automatically via @ssut/nestjs-sqs
   console.log('Service started successfully - listening for SQS messages');
   console.log('Ready to process S3 files and store data in MongoDB');
 

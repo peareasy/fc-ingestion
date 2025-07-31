@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { SqsModule } from '@ssut/nestjs-sqs';
 import { AppService } from './app.service';
 import { SQSHandler } from './sqs.handler';
-import { SQSMicroservice } from './sqs.microservice';
 import {
   ProcessedData,
   ProcessedDataSchema,
@@ -24,8 +24,18 @@ import { S3Service } from './services/s3.service';
     MongooseModule.forFeature([
       { name: ProcessedData.name, schema: ProcessedDataSchema },
     ]),
+    SqsModule.register({
+      consumers: [
+        {
+          name: 'fc-ingestion-queue.fifo',
+          queueUrl: process.env.QUEUE_URL || '',
+          region: process.env.AWS_REGION || 'eu-west-1',
+        },
+      ],
+      producers: [],
+    }),
   ],
-  controllers: [],
-  providers: [AppService, SQSHandler, SQSMicroservice, DataService, S3Service],
+  controllers: [SQSHandler],
+  providers: [AppService, DataService, S3Service],
 })
 export class AppModule {}
