@@ -79,14 +79,33 @@ jobs:
           # Wait for deployment to stabilize
           sleep 30
 
-          # Get the load balancer URL from CDK outputs
-          SERVICE_URL=$(aws cloudformation describe-stacks \
+          # Get ECS service name from CDK outputs
+          SERVICE_NAME=$(aws cloudformation describe-stacks \
             --stack-name FcIngestionStack \
-            --query 'Stacks[0].Outputs[?OutputKey==`ServiceUrl`].OutputValue' \
+            --query 'Stacks[0].Outputs[?OutputKey==`ServiceName`].OutputValue' \
             --output text)
 
-          # Test the service
-          curl -f "$SERVICE_URL/health" || exit 1
+          # Check ECS service status
+          echo "Checking ECS service: $SERVICE_NAME"
+          
+          # Wait for service to be stable
+          aws ecs wait services-stable \
+            --cluster fc-ingestion-cluster \
+            --services "$SERVICE_NAME"
+
+          # Get running tasks
+          TASKS=$(aws ecs list-tasks \
+            --cluster fc-ingestion-cluster \
+            --service-name "$SERVICE_NAME" \
+            --desired-status RUNNING \
+            --query 'taskArns' \
+            --output text)
+
+          if [ -z "$TASKS" ]; then
+            echo "❌ No running tasks found"
+            exit 1
+          fi
 
           echo "✅ Deployment verified successfully!"
-          echo "Service URL: $SERVICE_URL"
+          echo "ECS Service: $SERVICE_NAME"
+          echo "Running tasks: $TASKS"
