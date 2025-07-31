@@ -38,13 +38,25 @@ export class SQSHandler {
       this.logger.log(`Processing message: ${message.MessageId}`);
 
       // Parse the message body
-      const messageData = JSON.parse(message.Body) as ProcessableMessage;
+      const messageData = JSON.parse(message.Body) as any;
 
-      // Handle different message types
-      if (messageData.type === 's3_file') {
-        await this.processS3FileMessage(messageData, message.MessageId);
-      } else if (messageData.type === 'direct_data') {
-        await this.processDirectDataMessage(messageData, message.MessageId);
+      // Handle different message types - support both 'type' and 'messageType' fields
+      const messageType = messageData.type || messageData.messageType;
+      
+      if (messageType === 's3_file') {
+        // Convert to expected format
+        const s3FileMessage: S3FileMessage = {
+          type: 's3_file',
+          s3Key: messageData.s3Key,
+          metadata: messageData.metadata,
+        };
+        await this.processS3FileMessage(s3FileMessage, message.MessageId);
+      } else if (messageType === 'direct_data') {
+        const directDataMessage: DirectDataMessage = {
+          type: 'direct_data',
+          data: messageData.data,
+        };
+        await this.processDirectDataMessage(directDataMessage, message.MessageId);
       } else {
         // Legacy support for direct JSON messages
         await this.processLegacyMessage(messageData, message.MessageId);
